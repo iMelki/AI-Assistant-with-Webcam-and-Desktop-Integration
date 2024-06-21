@@ -1,6 +1,5 @@
 import base64
 from threading import Lock, Thread
-
 import cv2
 import openai
 from cv2 import VideoCapture, imencode
@@ -13,14 +12,59 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pyaudio import PyAudio, paInt16
-from speech_recognition import Microphone, Recognizer, UnknownValueError
+import speech_recognition as sr
+import numpy as np
+from PIL import ImageGrab
+import io
 
+# Load environment variables from a .env file
 load_dotenv()
 
+# Configuration options
+USE_GEMINI = False  # Set to False to use GPT-4
+GEMINI_MODEL = "gemini-1.5-pro"
+GPT4_MODEL = "gpt-4o"
+WHISPER_MODEL = "base"
+WHISPER_LANGUAGE = "english"
+TTS_MODEL = "tts-1"
+TTS_VOICE = "fable"
+WEBCAM_INDEX = 0
+
+# Audio configuration
+AUDIO_SAMPLE_RATE = 16000
+AUDIO_CHUNK_SIZE = 1024
+AUDIO_CHANNELS = 1
+AUDIO_FORMAT = paInt16
+
+# WebcamAudio configuration
+SILENCE_THRESHOLD_MULTIPLIER = 1.2
+MAX_AUDIO_DURATION = 10  # seconds
+SILENCE_DURATION = 1  # second
+MAX_SILENT_CHUNKS = 10
+
+# System prompt for the AI assistant
+SYSTEM_PROMPT = """
+You are a witty assistant that will use the chat history and the image 
+provided by the user to answer its questions.
+
+Use few words on your answers. Go straight to the point. Do not use any
+emoticons or emojis. Do not ask the user any questions.
+
+Be friendly and helpful. Show some personality. Do not be too formal.
+
+Keep replies short unless specifically needed
+"""
+
+class ScreenshotCapture:
+    def capture(self):
+        screenshot = ImageGrab.grab()
+        buffer = io.BytesIO()
+        screenshot.save(buffer, format="JPEG")
+        return base64.b64encode(buffer.getvalue())
 
 class WebcamStream:
     def __init__(self):
-        self.stream = VideoCapture(index=0)
+        self.stream = VideoCapture(index=WEBCAM_INDEX)
         _, self.frame = self.stream.read()
         self.running = False
         self.lock = Lock()
@@ -28,9 +72,7 @@ class WebcamStream:
     def start(self):
         if self.running:
             return self
-
         self.running = True
-
         self.thread = Thread(target=self.update, args=())
         self.thread.start()
         return self
@@ -38,20 +80,16 @@ class WebcamStream:
     def update(self):
         while self.running:
             _, frame = self.stream.read()
-
-            self.lock.acquire()
-            self.frame = frame
-            self.lock.release()
+            with self.lock:
+                self.frame = frame
 
     def read(self, encode=False):
-        self.lock.acquire()
-        frame = self.frame.copy()
-        self.lock.release()
-
+        with self.lock:
+            frame = self.frame.copy()
+        
         if encode:
             _, buffer = imencode(".jpeg", frame)
             return base64.b64encode(buffer)
-
         return frame
 
     def stop(self):
@@ -62,16 +100,69 @@ class WebcamStream:
     def __exit__(self, exc_type, exc_value, exc_traceback):
         self.stream.release()
 
+class WebcamAudio:
+    def __init__(self):
+        self.audio = PyAudio()
+        self.audio_stream = self.audio.open(format=AUDIO_FORMAT, channels=AUDIO_CHANNELS, 
+                                            rate=AUDIO_SAMPLE_RATE, input=True, 
+                                            frames_per_buffer=AUDIO_CHUNK_SIZE)
+        self.recognizer = sr.Recognizer()
+        self.silence_threshold = 300  # Initial value, will be adjusted
+
+    def read_audio(self, max_duration=MAX_AUDIO_DURATION):
+        frames = []
+        silent_chunks = 0
+
+        for _ in range(0, int(AUDIO_SAMPLE_RATE / AUDIO_CHUNK_SIZE * max_duration)):
+            data = self.audio_stream.read(AUDIO_CHUNK_SIZE)
+            frames.append(data)
+            
+            audio_data = np.frombuffer(data, dtype=np.int16)
+            if np.abs(audio_data).mean() < self.silence_threshold:
+                silent_chunks += 1
+                if silent_chunks > MAX_SILENT_CHUNKS:
+                    break
+            else:
+                silent_chunks = 0
+
+        audio_data = b''.join(frames)
+        return sr.AudioData(audio_data, AUDIO_SAMPLE_RATE, 2)
+
+    def adjust_for_ambient_noise(self, duration=SILENCE_DURATION):
+        print("Adjusting for ambient noise. Please remain silent...")
+        frames = []
+        for _ in range(0, int(AUDIO_SAMPLE_RATE / AUDIO_CHUNK_SIZE * duration)):
+            data = self.audio_stream.read(AUDIO_CHUNK_SIZE)
+            frames.append(np.frombuffer(data, dtype=np.int16))
+        
+        ambient_noise = np.concatenate(frames)
+        self.silence_threshold = int(np.abs(ambient_noise).mean() * SILENCE_THRESHOLD_MULTIPLIER)
+        print(f"Ambient noise threshold set to: {self.silence_threshold}")
+
+    def stop(self):
+        self.audio_stream.stop_stream()
+        self.audio_stream.close()
+        self.audio.terminate()
 
 class Assistant:
     def __init__(self, model):
         self.chain = self._create_inference_chain(model)
+        self.use_webcam = True
+        self.capture_device = WebcamStream().start()
+        self.screenshot_capture = ScreenshotCapture()
+        self.audio_device = WebcamAudio()
+        self.recognizer = sr.Recognizer()
 
-    def answer(self, prompt, image):
+    def answer(self, prompt):
         if not prompt:
             return
 
         print("Prompt:", prompt)
+
+        if self.use_webcam:
+            image = self.capture_device.read(encode=True)
+        else:
+            image = self.screenshot_capture.capture()
 
         response = self.chain.invoke(
             {"prompt": prompt, "image_base64": image.decode()},
@@ -87,8 +178,8 @@ class Assistant:
         player = PyAudio().open(format=paInt16, channels=1, rate=24000, output=True)
 
         with openai.audio.speech.with_streaming_response.create(
-            model="tts-1",
-            voice="alloy",
+            model=TTS_MODEL,
+            voice=TTS_VOICE,
             response_format="pcm",
             input=response,
         ) as stream:
@@ -96,16 +187,6 @@ class Assistant:
                 player.write(chunk)
 
     def _create_inference_chain(self, model):
-        SYSTEM_PROMPT = """
-        You are a witty assistant that will use the chat history and the image 
-        provided by the user to answer its questions.
-
-        Use few words on your answers. Go straight to the point. Do not use any
-        emoticons or emojis. Do not ask the user any questions.
-
-        Be friendly and helpful. Show some personality. Do not be too formal.
-        """
-
         prompt_template = ChatPromptTemplate.from_messages(
             [
                 SystemMessage(content=SYSTEM_PROMPT),
@@ -133,39 +214,67 @@ class Assistant:
             history_messages_key="chat_history",
         )
 
+    def transcribe_audio(self, audio):
+        try:
+            return self.recognizer.recognize_whisper(audio, model=WHISPER_MODEL, language=WHISPER_LANGUAGE)
+        except sr.UnknownValueError:
+            print("Whisper could not understand audio")
+        except sr.RequestError as e:
+            print(f"Could not request results from Whisper service; {e}")
+        return None
 
-webcam_stream = WebcamStream().start()
+    def toggle_mode(self):
+        self.use_webcam = not self.use_webcam
+        print(f"Switched to {'webcam' if self.use_webcam else 'screenshot'} mode")
 
-model = ChatGoogleGenerativeAI(model="gemini-1.5-flash-latest")
+# Initialize the language model based on configuration
+if USE_GEMINI:
+    model = ChatGoogleGenerativeAI(model=GEMINI_MODEL)
+else:
+    model = ChatOpenAI(model=GPT4_MODEL)
 
-# You can use OpenAI's GPT-4o model instead of Gemini Flash
-# by uncommenting the following line:
-# model = ChatOpenAI(model="gpt-4o")
-
+# Initialize AI assistant
 assistant = Assistant(model)
-
 
 def audio_callback(recognizer, audio):
     try:
-        prompt = recognizer.recognize_whisper(audio, model="base", language="english")
-        assistant.answer(prompt, webcam_stream.read(encode=True))
-
-    except UnknownValueError:
+        prompt = recognizer.recognize_whisper(audio, model=WHISPER_MODEL, language=WHISPER_LANGUAGE)
+        assistant.answer(prompt)
+    except sr.UnknownValueError:
         print("There was an error processing the audio.")
 
-
-recognizer = Recognizer()
-microphone = Microphone()
+# Main loop
+microphone = sr.Microphone()
 with microphone as source:
+    recognizer = sr.Recognizer()
     recognizer.adjust_for_ambient_noise(source)
 
 stop_listening = recognizer.listen_in_background(microphone, audio_callback)
 
+print("Press 'q' to quit, 's' to switch modes")
 while True:
-    cv2.imshow("webcam", webcam_stream.read())
-    if cv2.waitKey(1) in [27, ord("q")]:
+    if assistant.use_webcam:
+        frame = assistant.capture_device.read()
+        cv2.imshow("Capture", frame)
+    else:
+        screenshot = ImageGrab.grab()
+        screenshot_np = np.array(screenshot)
+        screenshot_bgr = cv2.cvtColor(screenshot_np, cv2.COLOR_RGB2BGR)
+        # Scale the screenshot to 1/8 size
+        height, width = screenshot_bgr.shape[:2]
+        new_height = int(height * 0.33)
+        new_width = int(width * 0.33)
+        resized_screenshot = cv2.resize(screenshot_bgr, (new_width, new_height))
+        cv2.imshow("Capture", resized_screenshot)
+    
+    key = cv2.waitKey(1) & 0xFF
+    if key == ord('q'):
         break
+    elif key == ord('s'):
+        assistant.toggle_mode()
 
-webcam_stream.stop()
-cv2.destroyAllWindows()
+# Clean up
 stop_listening(wait_for_stop=False)
+assistant.capture_device.stop()
+assistant.audio_device.stop()
+cv2.destroyAllWindows()
