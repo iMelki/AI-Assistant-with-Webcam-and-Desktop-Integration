@@ -21,8 +21,8 @@ This project is an AI assistant that uses computer vision, speech recognition, a
 1. Clone the repository:
 
    ```
-   git clone [your-repo-url]
-   cd [your-repo-directory]
+   git clone https://github.com/wildownes/AI-Assistant-with-Webcam-and-Desktop-Integration
+   cd AI-Assistant-with-Webcam-and-Desktop-Integration
    ```
 
 2. Create a virtual environment and activate it:
