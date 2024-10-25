@@ -12,20 +12,29 @@ This project is an AI assistant that uses computer vision, speech recognition, a
 
 ## Prerequisites
 
-- Python 3.7+
+- Python 3.7+ (if not using Docker)
+- Docker (if using Docker)
 - OpenAI API key
 - Google API key (if using Gemini)
 
-## Installation
-
-1. Clone the repository:
+Clone the repository:
 
    ```cmd
    git clone https://github.com/wildownes/AI-Assistant-with-Webcam-and-Desktop-Integration
    cd AI-Assistant-with-Webcam-and-Desktop-Integration
    ```
 
-2. Create a virtual environment, update pip, and install the required packages:
+## Installation Using Docker
+
+Build the Docker image:
+
+   ```cmd
+   docker-compose build
+   ```
+
+## Installation without Docker
+
+1. Create a virtual environment, update pip, and install the required packages:
 
    ```cmd
    python3 -m venv .venv
@@ -140,6 +149,24 @@ You need an `OPENAI_API_KEY` and a `GOOGLE_API_KEY` (if using Gemini) to run thi
    ```
 
 ## Usage
+
+### Using Docker
+
+1. Ensure your API keys are set in the .env file or as environment variables.
+
+2. Start the Docker container:
+
+   ```cmd
+   docker-compose up
+   ```cmd
+
+The assistant will start listening for voice input and display the webcam feed or screenshot.
+
+- Speak to interact with the assistant. It will process your speech and provide audio responses.
+- Press 's' to switch between webcam and screenshot modes.
+- Press 'q' to quit the program.
+
+### Without Docker
 
 1. Ensure your virtual environment is activated:
 
