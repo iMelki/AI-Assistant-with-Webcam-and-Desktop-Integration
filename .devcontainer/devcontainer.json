@@ -1,0 +1,23 @@
+{
+	"name": "AI Assistant Dev Container",
+	"dockerComposeFile": "../docker-compose.yml",
+	"service": "ai-assistant",
+	"workspaceFolder": "/app",
+	"customizations": {
+		"vscode": {
+			"settings": {
+				"python.pythonPath": "/usr/local/bin/python",
+				"terminal.integrated.defaultProfile.linux": "bash",
+				"python.linting.enabled": true
+			},
+			"extensions": ["ms-python.python", "ms-azuretools.vscode-docker"]
+		}
+	},
+	"forwardPorts": [5000],
+	"postCreateCommand": "pip install -r requirements.txt",
+	"mounts": ["source=${localWorkspaceFolder},target=/app,type=bind"],
+	"remoteEnv": {
+		"OPENAI_API_KEY": "${env:OPENAI_API_KEY}",
+		"GOOGLE_API_KEY": "${env:GOOGLE_API_KEY}"
+	}
+}

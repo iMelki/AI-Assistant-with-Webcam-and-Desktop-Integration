@@ -1,6 +1,6 @@
 # AI Assistant with Webcam and Desktop Integration
 
-This project is an AI assistant that uses computer vision, speech recognition, and natural language processing to interact with users. It's forked from [svpino/alloy-voice-assistant](https://github.com/svpino/alloy-voice-assistant) with significant modifications and improvements, inspired by a Wes Roth video (https://www.youtube.com/watch?v=_mkyL0Ww_08).
+This project is an AI assistant that uses computer vision, speech recognition, and natural language processing to interact with users. It's forked from [svpino/alloy-voice-assistant](https://github.com/svpino/alloy-voice-assistant) with significant modifications and improvements, inspired by a Wes Roth video (<https://www.youtube.com/watch?v=_mkyL0Ww_08>).
 
 ## Features
 
@@ -19,35 +19,40 @@ This project is an AI assistant that uses computer vision, speech recognition, a
 ## Installation
 
 1. Clone the repository:
-   ```
+
+   ```cmd
    git clone https://github.com/wildownes/AI-Assistant-with-Webcam-and-Desktop-Integration
    cd AI-Assistant-with-Webcam-and-Desktop-Integration
    ```
 
 2. Create a virtual environment, update pip, and install the required packages:
-   ```
+
+   ```cmd
    python3 -m venv .venv
    source .venv/bin/activate  # On Windows, use: .venv\Scripts\activate
    pip install -U pip
    pip install -r requirements.txt
    ```
 
-### Notes for Mac users:
+### Notes for Mac users
 
 Mac users need to install some additional dependencies before installing the Python packages:
 
 1. Install Homebrew if you haven't already:
-   ```
+
+   ```cmd
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
    ```
 
 2. Install portaudio and other dependencies:
-   ```
+
+   ```cmd
    brew install portaudio
    ```
 
 3. Install PyAudio using pip with specific compilation flags:
-   ```
+
+   ```cmd
    export LDFLAGS="-L/opt/homebrew/lib"
    export CPPFLAGS="-I/opt/homebrew/include"
    pip install pyaudio
@@ -55,17 +60,18 @@ Mac users need to install some additional dependencies before installing the Pyt
 
 If you're using Apple Silicon (M1/M2), you might need to use a specific Python version compiled for ARM architecture. Consider using Miniforge to install Python:
 
-```
-brew install miniforge
-conda create -n myenv python=3.9
-conda activate myenv
-```
+   ```cmd
+   brew install miniforge
+   conda create -n myenv python=3.9
+   conda activate myenv
+   ```
 
 Then follow the installation steps above within this conda environment.
 
-### Notes for Windows users:
+### Notes for Windows users
 
 Windows users might need to install the following:
+
 1. [Microsoft Visual C++ 14.0 or greater](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
 2. [FFmpeg](https://ffmpeg.org/download.html)
 
@@ -77,7 +83,8 @@ You need an `OPENAI_API_KEY` and a `GOOGLE_API_KEY` (if using Gemini) to run thi
 
 1. Using a `.env` file (Recommended):
    Create a `.env` file in the root directory of the project and add your API keys:
-   ```
+
+   ```.env
    OPENAI_API_KEY=your_openai_api_key_here
    GOOGLE_API_KEY=your_google_api_key_here
    ```
@@ -86,19 +93,22 @@ You need an `OPENAI_API_KEY` and a `GOOGLE_API_KEY` (if using Gemini) to run thi
    You can set these directly in your terminal:
 
    For macOS and Linux:
-   ```
+
+   ```env
    export OPENAI_API_KEY=your_openai_api_key_here
    export GOOGLE_API_KEY=your_google_api_key_here
    ```
 
    For Windows Command Prompt:
-   ```
+
+   ```cmd
    set OPENAI_API_KEY=your_openai_api_key_here
    set GOOGLE_API_KEY=your_google_api_key_here
    ```
 
    For Windows PowerShell:
-   ```
+
+   ```shell
    $env:OPENAI_API_KEY="your_openai_api_key_here"
    $env:GOOGLE_API_KEY="your_google_api_key_here"
    ```
@@ -109,19 +119,22 @@ You need an `OPENAI_API_KEY` and a `GOOGLE_API_KEY` (if using Gemini) to run thi
    After setting the environment variables, you can verify they're set correctly:
 
    For macOS and Linux:
-   ```
+
+   ```cmd
    echo $OPENAI_API_KEY
    echo $GOOGLE_API_KEY
    ```
 
    For Windows Command Prompt:
-   ```
+
+   ```cmd
    echo %OPENAI_API_KEY%
    echo %GOOGLE_API_KEY%
    ```
 
    For Windows PowerShell:
-   ```
+
+   ```shell
    echo $env:OPENAI_API_KEY
    echo $env:GOOGLE_API_KEY
    ```
@@ -129,14 +142,16 @@ You need an `OPENAI_API_KEY` and a `GOOGLE_API_KEY` (if using Gemini) to run thi
 ## Usage
 
 1. Ensure your virtual environment is activated:
-   ```
+
+   ```cmd
    source .venv/bin/activate  # On Windows, use: .venv\Scripts\activate
    ```
 
 2. Make sure your API keys are set (either in .env file or as environment variables).
 
 3. Run the assistant:
-   ```
+
+   ```cmd
    python3 assistant.py
    ```
 
