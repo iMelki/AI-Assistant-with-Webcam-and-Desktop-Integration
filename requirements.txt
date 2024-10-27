@@ -6,8 +6,10 @@ langchain-community
 python-dotenv
 pyaudio
 soundfile
-SpeechRecognition
 openai
 numpy
 Pillow
 openai-whisper
+SpeechRecognition
+SpeechRecognition[whisper-local]
+

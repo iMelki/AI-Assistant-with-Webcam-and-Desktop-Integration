@@ -28,6 +28,7 @@ WHISPER_MODEL = "base"
 WHISPER_LANGUAGE = "english"
 TTS_MODEL = "tts-1"
 TTS_VOICE = "fable"
+USE_WEBCAM = True
 WEBCAM_INDEX = 0
 
 # Audio configuration
@@ -52,7 +53,9 @@ emoticons or emojis. Do not ask the user any questions.
 
 Be friendly and helpful. Show some personality. Do not be too formal.
 
-Keep replies short unless specifically needed
+If the user need a code fix, provide the code fix.
+
+Keep replies short unless specifically needed.
 """
 
 class ScreenshotCapture:
@@ -64,15 +67,19 @@ class ScreenshotCapture:
 
 class WebcamStream:
     def __init__(self):
-        self.stream = VideoCapture(index=WEBCAM_INDEX)
-        _, self.frame = self.stream.read()
-        self.running = False
-        self.lock = Lock()
+        try:
+            self.stream = VideoCapture(index=WEBCAM_INDEX)
+            _, self.frame = self.stream.read()
+            self.running = self.frame is not None  # Check if webcam capture was successful
+            self.lock = Lock()
+        except Exception as e:
+            print(f"Warning: Webcam not accessible. Error: {e}")
+            self.running = False
 
     def start(self):
-        if self.running:
+        if not self.running:
+            print("Webcam is disabled due to initialization failure.")
             return self
-        self.running = True
         self.thread = Thread(target=self.update, args=())
         self.thread.start()
         return self
@@ -80,13 +87,18 @@ class WebcamStream:
     def update(self):
         while self.running:
             _, frame = self.stream.read()
+            if frame is None:
+                self.running = False
+                print("Warning: Webcam stream stopped unexpectedly.")
+                break
             with self.lock:
                 self.frame = frame
 
     def read(self, encode=False):
+        if not self.running:
+            return None
         with self.lock:
             frame = self.frame.copy()
-        
         if encode:
             _, buffer = imencode(".jpeg", frame)
             return base64.b64encode(buffer)
@@ -94,29 +106,38 @@ class WebcamStream:
 
     def stop(self):
         self.running = False
-        if self.thread.is_alive():
+        if hasattr(self, "thread") and self.thread.is_alive():
             self.thread.join()
+        if hasattr(self, "stream"):
+            self.stream.release()
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         self.stream.release()
 
 class WebcamAudio:
     def __init__(self):
-        self.audio = PyAudio()
-        self.audio_stream = self.audio.open(format=AUDIO_FORMAT, channels=AUDIO_CHANNELS, 
-                                            rate=AUDIO_SAMPLE_RATE, input=True, 
-                                            frames_per_buffer=AUDIO_CHUNK_SIZE)
-        self.recognizer = sr.Recognizer()
-        self.silence_threshold = 300  # Initial value, will be adjusted
+        try:
+            self.audio = PyAudio()
+            self.audio_stream = self.audio.open(format=AUDIO_FORMAT, channels=AUDIO_CHANNELS, 
+                                                rate=AUDIO_SAMPLE_RATE, input=True, 
+                                                frames_per_buffer=AUDIO_CHUNK_SIZE)
+            self.recognizer = sr.Recognizer()
+            self.silence_threshold = 300
+        except Exception as e:
+            print(f"Warning: Audio device not accessible. Error: {e}")
+            self.audio_stream = None
 
     def read_audio(self, max_duration=MAX_AUDIO_DURATION):
+        if not self.audio_stream:
+            print("Audio device is unavailable.")
+            return None
         frames = []
         silent_chunks = 0
 
         for _ in range(0, int(AUDIO_SAMPLE_RATE / AUDIO_CHUNK_SIZE * max_duration)):
             data = self.audio_stream.read(AUDIO_CHUNK_SIZE)
             frames.append(data)
-            
+
             audio_data = np.frombuffer(data, dtype=np.int16)
             if np.abs(audio_data).mean() < self.silence_threshold:
                 silent_chunks += 1
@@ -126,28 +147,37 @@ class WebcamAudio:
                 silent_chunks = 0
 
         audio_data = b''.join(frames)
-        return sr.AudioData(audio_data, AUDIO_SAMPLE_RATE, 2)
+        return sr.AudioData(audio_data, AUDIO_SAMPLE_RATE, 2) if frames else None
 
     def adjust_for_ambient_noise(self, duration=SILENCE_DURATION):
-        print("Adjusting for ambient noise. Please remain silent...")
-        frames = []
-        for _ in range(0, int(AUDIO_SAMPLE_RATE / AUDIO_CHUNK_SIZE * duration)):
-            data = self.audio_stream.read(AUDIO_CHUNK_SIZE)
-            frames.append(np.frombuffer(data, dtype=np.int16))
-        
-        ambient_noise = np.concatenate(frames)
-        self.silence_threshold = int(np.abs(ambient_noise).mean() * SILENCE_THRESHOLD_MULTIPLIER)
-        print(f"Ambient noise threshold set to: {self.silence_threshold}")
+        if not self.audio_stream:
+            print("Audio device is unavailable. Skipping adjust for ambient noise.")
+        else:
+            try:
+                print("Adjusting for ambient noise. Please remain silent...")
+                frames = []
+                for _ in range(0, int(AUDIO_SAMPLE_RATE / AUDIO_CHUNK_SIZE * duration)):
+                    data = self.audio_stream.read(AUDIO_CHUNK_SIZE)
+                    frames.append(np.frombuffer(data, dtype=np.int16))
+
+                ambient_noise = np.concatenate(frames)
+                self.silence_threshold = int(np.abs(ambient_noise).mean() * SILENCE_THRESHOLD_MULTIPLIER)
+                print(f"Ambient noise threshold set to: {self.silence_threshold}")
+            except Exception as e:
+                print(f"Error adjusting for ambient noise: {e}")
 
     def stop(self):
-        self.audio_stream.stop_stream()
-        self.audio_stream.close()
-        self.audio.terminate()
+        if self.audio_stream:
+            self.audio_stream.stop_stream()
+            self.audio_stream.close()
+        if hasattr(self, "audio"):
+            self.audio.terminate()
 
 class Assistant:
     def __init__(self, model):
+        self.model = model
         self.chain = self._create_inference_chain(model)
-        self.use_webcam = True
+        self.use_webcam = USE_WEBCAM
         self.capture_device = WebcamStream().start()
         self.screenshot_capture = ScreenshotCapture()
         self.audio_device = WebcamAudio()
@@ -243,38 +273,64 @@ def audio_callback(recognizer, audio):
     except sr.UnknownValueError:
         print("There was an error processing the audio.")
 
+# Function to initialize webcam
+def initialize_camera():
+    try:
+        cap = cv2.VideoCapture(index=WEBCAM_INDEX)
+        if not cap.isOpened():
+            raise cv2.error("Camera index out of range or not accessible")
+        return cap
+    except Exception as e:
+        print(f"Webcam initialization failed: {e}")
+        return None  # or return a default/fallback
+
+# Function to initialize microphone
+def initialize_microphone():
+    try:
+        microphone = sr.Microphone()
+        return microphone
+    except Exception as e:
+        print(f"Audio initialization failed: {e}")
+        return None
+
+# Initialize devices with error handling
+camera = initialize_camera()
+microphone = initialize_microphone()
+
 # Main loop
-microphone = sr.Microphone()
-with microphone as source:
-    recognizer = sr.Recognizer()
-    recognizer.adjust_for_ambient_noise(source)
+if microphone:
+    with microphone as source:
+        recognizer = sr.Recognizer()
+        recognizer.adjust_for_ambient_noise(source)
 
-stop_listening = recognizer.listen_in_background(microphone, audio_callback)
+    stop_listening = recognizer.listen_in_background(microphone, audio_callback)
 
-print("Press 'q' to quit, 's' to switch modes")
-while True:
-    if assistant.use_webcam:
-        frame = assistant.capture_device.read()
-        cv2.imshow("Capture", frame)
-    else:
-        screenshot = ImageGrab.grab()
-        screenshot_np = np.array(screenshot)
-        screenshot_bgr = cv2.cvtColor(screenshot_np, cv2.COLOR_RGB2BGR)
-        # Scale the screenshot to 1/8 size
-        height, width = screenshot_bgr.shape[:2]
-        new_height = int(height * 0.33)
-        new_width = int(width * 0.33)
-        resized_screenshot = cv2.resize(screenshot_bgr, (new_width, new_height))
-        cv2.imshow("Capture", resized_screenshot)
-    
-    key = cv2.waitKey(1) & 0xFF
-    if key == ord('q'):
-        break
-    elif key == ord('s'):
-        assistant.toggle_mode()
+    print("Press 'q' to quit, 's' to switch modes")
+    while True:
+        if assistant.use_webcam:
+            frame = assistant.capture_device.read()
+            cv2.imshow("Capture", frame)
+        else:
+            screenshot = ImageGrab.grab()
+            screenshot_np = np.array(screenshot)
+            screenshot_bgr = cv2.cvtColor(screenshot_np, cv2.COLOR_RGB2BGR)
+            # Scale the screenshot to 1/8 size
+            height, width = screenshot_bgr.shape[:2]
+            new_height = int(height * 0.33)
+            new_width = int(width * 0.33)
+            resized_screenshot = cv2.resize(screenshot_bgr, (new_width, new_height))
+            cv2.imshow("Capture", resized_screenshot)
 
-# Clean up
-stop_listening(wait_for_stop=False)
-assistant.capture_device.stop()
-assistant.audio_device.stop()
-cv2.destroyAllWindows()
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+        elif key == ord('s'):
+            assistant.toggle_mode()
+
+    # Clean up
+    stop_listening(wait_for_stop=False)
+    assistant.capture_device.stop()
+    assistant.audio_device.stop()
+    cv2.destroyAllWindows()
+else:
+    print("Microphone initialization failed. Exiting...")

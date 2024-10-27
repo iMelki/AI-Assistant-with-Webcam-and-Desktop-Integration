@@ -1,2 +1,8 @@
-.env
+*.env
 /.venv
+.vscode
+.vscode/*
+.devcontainer
+.devcontainer/*
+Dockerfile
+docker-compose.yml
