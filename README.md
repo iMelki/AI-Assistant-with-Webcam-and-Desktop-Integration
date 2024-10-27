@@ -224,3 +224,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Inspiration from [Wes Roth's video](https://www.youtube.com/watch?v=_mkyL0Ww_08)
 - OpenAI for GPT-4, Whisper, and TTS models
 - Google for Gemini model
+
+:)
